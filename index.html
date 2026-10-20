@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#11141b" />
+    <title>Canvas — Digital art studio</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div>
+            <p class="eyebrow">CREATIVE STUDIO</p>
+            <h1>Canvas</h1>
+          </div>
+        </div>
+        <div class="document-name">
+          <button class="icon-button subtle" id="favoriteBtn" aria-label="Favorite artwork" title="Favorite artwork">♡</button>
+          <div class="name-field">
+            <input id="documentTitle" value="" placeholder="Untitled artwork" aria-label="Artwork title" />
+            <span>Saved just now</span>
+          </div>
+          <span class="save-dot" aria-label="All changes saved"></span>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="undoBtn" aria-label="Undo" title="Undo (⌘/Ctrl + Z)">↶</button>
+          <button class="icon-button" id="redoBtn" aria-label="Redo" title="Redo (⌘/Ctrl + Shift + Z)">↷</button>
+          <span class="top-divider"></span>
+          <button class="icon-button" id="saveProjectBtn" aria-label="Save project" title="Save project">⇩</button>
+          <button class="icon-button" id="loadProjectBtn" aria-label="Load project" title="Load project">⇧</button>
+          <button class="ghost-button" id="clearBtn"><span class="button-icon">⌫</span> Clear canvas</button>
+          <button class="primary-button" id="exportBtn"><span class="button-icon">↓</span> Export</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="tool-panel" aria-label="Drawing tools">
+          <div class="panel-section tool-section">
+            <div class="section-label">TOOLS</div>
+            <div class="tool-grid" role="toolbar" aria-label="Tools">
+              <button class="tool-button active" data-tool="brush" title="Brush" aria-label="Brush">
+                <span class="tool-glyph brush-glyph"></span><span>Brush</span>
+              </button>
+              <button class="tool-button" data-tool="pencil" title="Pencil" aria-label="Pencil">
+                <span class="tool-glyph pencil-glyph">✎</span><span>Pencil</span>
+              </button>
+              <button class="tool-button" data-tool="pen" title="Ink pen" aria-label="Ink pen">
+                <span class="tool-glyph pen-glyph">⌁</span><span>Ink pen</span>
+              </button>
+              <button class="tool-button" data-tool="marker" title="Marker" aria-label="Marker">
+                <span class="tool-glyph marker-glyph"></span><span>Marker</span>
+              </button>
+              <button class="tool-button" data-tool="highlighter" title="Highlighter" aria-label="Highlighter">
+                <span class="tool-glyph highlighter-glyph"></span><span>Highlight</span>
+              </button>
+              <button class="tool-button" data-tool="eraser" title="Eraser" aria-label="Eraser">
+                <span class="tool-glyph eraser-glyph">◒</span><span>Eraser</span>
+              </button>
+              <button class="tool-button" data-tool="blend" title="Blend" aria-label="Blend">
+                <span class="tool-glyph blend-glyph">◌</span><span>Blend</span>
+              </button>
+              <button class="tool-button" data-tool="eyedropper" title="Color picker" aria-label="Color picker">
+                <span class="tool-glyph eyedropper-glyph">⌖</span><span>Picker</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel-section controls-section">
+            <div class="section-label">BRUSH SETTINGS</div>
+            <div class="setting-row setting-row-between"><span>Size</span><output id="sizeValue">24 px</output></div>
+            <input class="range-input" id="sizeRange" type="range" min="2" max="120" value="24" aria-label="Brush size" />
+            <div class="size-preview"><span id="sizePreview"></span></div>
+            <div class="setting-row setting-row-between"><span>Opacity</span><output id="opacityValue">82%</output></div>
+            <input class="range-input" id="opacityRange" type="range" min="5" max="100" value="82" aria-label="Opacity" />
+          </div>
+
+          <div class="panel-section color-section">
+            <div class="section-label">COLOR</div>
+            <div class="color-picker-wrap">
+              <input id="colorInput" type="color" value="#1c2434" aria-label="Current color" />
+              <div class="color-info"><strong id="colorHex">#1C2434</strong><span>Current color</span></div>
+              <button class="eyedrop-button" data-tool="eyedropper" aria-label="Pick a color" title="Pick a color">⌖</button>
+            </div>
+            <div class="swatches" aria-label="Color swatches">
+              <button class="swatch" style="--swatch:#1c2434" data-color="#1c2434" aria-label="Navy ink"></button>
+              <button class="swatch" style="--swatch:#ef6f61" data-color="#ef6f61" aria-label="Coral"></button>
+              <button class="swatch" style="--swatch:#f0b05c" data-color="#f0b05c" aria-label="Amber"></button>
+              <button class="swatch" style="--swatch:#71b8a6" data-color="#71b8a6" aria-label="Sage"></button>
+              <button class="swatch" style="--swatch:#5e7ce2" data-color="#5e7ce2" aria-label="Blue"></button>
+              <button class="swatch" style="--swatch:#b675d2" data-color="#b675d2" aria-label="Violet"></button>
+              <button class="swatch" style="--swatch:#f7f4ed" data-color="#f7f4ed" aria-label="Paper white"></button>
+              <button class="swatch add-swatch" aria-label="Add custom color">+</button>
+            </div>
+          </div>
+
+          <div class="panel-section quick-section">
+            <div class="section-label">QUICK ACTIONS</div>
+            <button class="quick-action" id="gridBtn"><span class="quick-icon">⊞</span><span>Grid</span><span class="toggle-indicator" id="gridIndicator"></span></button>
+            <button class="quick-action" id="mirrorBtn"><span class="quick-icon">⇆</span><span>Mirror canvas</span><span class="toggle-indicator" id="mirrorIndicator"></span></button>
+          </div>
+
+          <div class="tool-footer"><div class="keyboard-key">⌘</div><span>Shortcuts available</span></div>
+        </aside>
+
+        <section class="canvas-area">
+          <div class="canvas-toolbar">
+            <div class="canvas-meta"><span class="live-dot"></span><span id="canvasStatus">Untitled artwork</span></div>
+            <div class="canvas-tools">
+              <button class="canvas-icon-btn" id="fitBtn" title="Fit canvas">⤢</button>
+              <button class="canvas-icon-btn" id="zoomOutBtn" title="Zoom out">−</button>
+              <span class="zoom-label" id="zoomValue">100%</span>
+              <button class="canvas-icon-btn" id="zoomInBtn" title="Zoom in">+</button>
+              <span class="canvas-toolbar-divider"></span>
+              <button class="canvas-icon-btn" id="fullscreenBtn" title="Focus mode">⛶</button>
+            </div>
+          </div>
+          <div class="canvas-stage" id="canvasStage">
+            <div class="canvas-shadow"></div>
+            <div class="canvas-stack" id="canvasStack" aria-label="Drawing canvas"><div class="cursor-preview" id="cursorPreview" aria-hidden="true"></div></div>
+            <div class="empty-state" id="emptyState" aria-hidden="true">
+              <div class="empty-icon">✦</div><span>Start with a stroke</span>
+            </div>
+            <div class="grid-overlay" id="gridOverlay"></div>
+          </div>
+          <div class="canvas-footer">
+            <span><kbd>Space</kbd> Pan canvas</span><span><kbd>B</kbd> Brush</span><span><kbd>E</kbd> Eraser</span><span><kbd>⌘ Z</kbd> Undo</span>
+          </div>
+        </section>
+
+        <aside class="layers-panel" aria-label="Layers and properties">
+          <div class="layers-header"><div><p class="eyebrow">DOCUMENT</p><h2>Layers</h2></div><button class="icon-button small" id="addLayerBtn" aria-label="Add layer" title="Add layer">+</button></div>
+          <div class="layer-list" id="layerList"></div>
+          <div class="layer-actions"><button id="duplicateLayerBtn" title="Duplicate layer">▣</button><button id="moveLayerUpBtn" title="Move layer up">↑</button><button id="moveLayerDownBtn" title="Move layer down">↓</button><button id="deleteLayerBtn" title="Delete layer">♲</button></div>
+          <div class="properties-section">
+            <div class="properties-title"><span>Layer properties</span><span class="property-dot"></span></div>
+            <label class="property-field"><span>Name</span><input id="layerNameInput" value="Ink &amp; color" /></label>
+            <div class="setting-row setting-row-between"><span>Layer opacity</span><output id="layerOpacityValue">100%</output></div>
+            <input class="range-input" id="layerOpacityRange" type="range" min="0" max="100" value="100" aria-label="Layer opacity" />
+            <div class="blend-row"><span>Blend mode</span><select id="blendMode"><option>Normal</option><option>Multiply</option><option>Screen</option><option>Overlay</option><option>Soft light</option></select></div>
+          </div>
+          <div class="layer-tip"><span>✦</span><p><strong>Tip</strong><br />Keep your sketch and colors on separate layers for easy edits.</p></div>
+        </aside>
+      </main>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <input type="file" id="importInput" accept=".canvas,.json,application/json" hidden />
+    <script src="app.js"></script>
+  </body>
+</html>
