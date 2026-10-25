@@ -1,6 +1,6 @@
 const state = {
   tool: 'brush', color: '#1c2434', size: 24, opacity: .82, zoom: 1, grid: false, mirror: false,
-  layers: [], activeLayer: 0, history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, strokeLayerOpacity: 1, cursorPosition: null
+  layers: [], activeLayer: 0, previousTool: 'brush', history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, strokeLayerOpacity: 1, cursorPosition: null
 };
 
 const $ = (id) => document.getElementById(id);
@@ -67,33 +67,121 @@ function updateControls() {
   $('sizeValue').textContent = `${state.size} px`; $('sizeRange').value = state.size; $('opacityValue').textContent = `${Math.round(state.opacity * 100)}%`; $('opacityRange').value = Math.round(state.opacity * 100); $('colorHex').textContent = state.color.toUpperCase(); $('sizePreview').style.width = `${Math.max(4, Math.min(30, state.size / 2))}px`; $('sizePreview').style.height = `${Math.max(4, Math.min(30, state.size / 2))}px`;
   document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('selected', s.dataset.color?.toLowerCase() === state.color.toLowerCase()));
   document.querySelectorAll('.tool-button').forEach(button => button.classList.toggle('active', button.dataset.tool === state.tool));
-  $('gridIndicator').classList.toggle('on', state.grid); $('gridOverlay').classList.toggle('visible', state.grid); $('mirrorIndicator').classList.toggle('on', state.mirror); canvasStack.style.transform = `scaleX(${state.mirror ? -state.zoom : state.zoom})`;
-  $('zoomValue').textContent = `${Math.round(state.zoom * 100)}%`;
+  $('gridIndicator').classList.toggle('on', state.grid); $('gridOverlay').classList.toggle('visible', state.grid); $('mirrorIndicator').classList.toggle('on', state.mirror); applyCanvasTransform();
+  $('zoomValue').value = Math.round(state.zoom * 100);
   refreshCursorPreview();
 }
 
-function setTool(tool) { state.tool = tool; updateControls(); showToast(`${tool[0].toUpperCase() + tool.slice(1)} selected`); }
+function applyCanvasTransform() {
+  const mirrorScale = state.mirror ? -1 : 1;
+  const transform = `scale(${mirrorScale * state.zoom}, ${state.zoom})`;
+  canvasStack.style.transform = transform;
+  $('gridOverlay').style.transform = transform;
+  $('canvasShadow').style.transform = `translateY(18px) scale(${state.zoom})`;
+}
+function fitCanvas() {
+  const availableWidth = Math.max(1, canvasStage.clientWidth - 48);
+  const availableHeight = Math.max(1, canvasStage.clientHeight - 48);
+  const baseWidth = Math.max(1, canvasStack.offsetWidth);
+  const baseHeight = Math.max(1, canvasStack.offsetHeight);
+  state.zoom = Math.max(.25, Math.min(4, Math.min(availableWidth / baseWidth, availableHeight / baseHeight)));
+  updateControls();
+}
+async function toggleFocusMode() {
+  const canvasArea = document.querySelector('.canvas-area');
+  const entering = !canvasArea.classList.contains('focus-mode');
+  canvasArea.classList.toggle('focus-mode', entering);
+  $('fullscreenBtn').title = entering ? 'Exit focus mode' : 'Focus mode';
+  if (entering) {
+    try { await document.documentElement.requestFullscreen?.(); } catch (error) { /* CSS focus mode still works when fullscreen is unavailable. */ }
+  } else if (document.fullscreenElement) {
+    try { await document.exitFullscreen(); } catch (error) { /* The focus layout has already been restored. */ }
+  }
+  requestAnimationFrame(fitCanvas);
+}
 
-function pointFromEvent(event) { const rect = canvasStack.getBoundingClientRect(); const x = ((event.clientX - rect.left) / rect.width) * 1200; const y = ((event.clientY - rect.top) / rect.height) * 900; return { x, y }; }
+function setTool(tool) { if (tool !== 'eyedropper') state.previousTool = tool; state.tool = tool; updateControls(); const toolLabel = tool === 'eyedropper' ? 'Color picker' : `${tool[0].toUpperCase() + tool.slice(1)}`; showToast(`${toolLabel} selected`); }
 
-function cursorDiameter() { if (state.tool === 'pencil') return state.size * .45; if (state.tool === 'pen') return Math.max(1, state.size * .32); if (state.tool === 'marker') return state.size * 1.7; if (state.tool === 'highlighter') return state.size * 2.25; if (state.tool === 'eraser') return state.size * 1.25; if (state.tool === 'blend') return state.size * 2.8; return state.size; }
+function selectColor(color) { state.color = color; $('colorInput').value = color; updateControls(); }
+function addCustomSwatch(color) {
+  const normalizedColor = color.toLowerCase();
+  if ([...document.querySelectorAll('.swatch[data-color]')].some(swatch => swatch.dataset.color.toLowerCase() === normalizedColor)) return;
+  const swatch = document.createElement('button');
+  swatch.className = 'swatch'; swatch.dataset.color = color; swatch.style.setProperty('--swatch', color); swatch.setAttribute('aria-label', `Custom color ${color.toUpperCase()}`); swatch.title = `Use ${color.toUpperCase()}`;
+  swatch.addEventListener('click', () => selectColor(color));
+  $('addSwatchBtn').before(swatch);
+}
+
+function pointFromEvent(event) { const rect = canvasStack.getBoundingClientRect(); const visualX = ((event.clientX - rect.left) / rect.width) * 1200; const x = state.mirror ? 1200 - visualX : visualX; const y = ((event.clientY - rect.top) / rect.height) * 900; return { x, y }; }
+
+function cursorDiameter() { return state.size; }
 function updateCursorPreview(event) { const preview = $('cursorPreview'); if (!preview) return; const rect = canvasStack.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) { preview.classList.remove('visible'); return; } const layoutWidth = canvasStack.offsetWidth; const layoutHeight = canvasStack.offsetHeight; const visualX = ((event.clientX - rect.left) / rect.width) * layoutWidth; const visualY = ((event.clientY - rect.top) / rect.height) * layoutHeight; const x = state.mirror ? layoutWidth - visualX : visualX; const diameter = cursorDiameter() * (layoutWidth / 1200); preview.style.left = `${x}px`; preview.style.top = `${visualY}px`; preview.style.width = `${Math.max(2, diameter)}px`; preview.style.height = `${Math.max(2, diameter)}px`; preview.style.setProperty('--cursor-color', state.tool === 'eraser' ? '#6b7280' : state.color); preview.classList.add('visible'); state.cursorPosition = { clientX: event.clientX, clientY: event.clientY }; }
 function refreshCursorPreview() { if (state.cursorPosition) updateCursorPreview(state.cursorPosition); }
 
 function toolAlpha() { return state.opacity; }
-function setupBrush(ctx, opaque = false) { ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = opaque ? 1 : toolAlpha(); ctx.strokeStyle = state.color; ctx.fillStyle = state.color; ctx.lineWidth = state.size; if (state.tool === 'pencil') ctx.lineWidth = Math.max(2, state.size * .45); if (state.tool === 'pen') ctx.lineWidth = Math.max(1, state.size * .32); if (state.tool === 'marker') ctx.lineWidth = state.size * 1.7; if (state.tool === 'highlighter') ctx.lineWidth = state.size * 2.25; if (state.tool === 'eraser') { ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'destination-out'; ctx.lineWidth = state.size * 1.25; } }
+function setupBrush(ctx, opaque = false) { ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = opaque ? 1 : toolAlpha(); ctx.strokeStyle = state.color; ctx.fillStyle = state.color; ctx.lineWidth = state.size; if (state.tool === 'eraser') { ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'destination-out'; } }
 
 function drawDot(ctx, point) { ctx.beginPath(); ctx.arc(point.x, point.y, Math.max(1, ctx.lineWidth / 2), 0, Math.PI * 2); ctx.fill(); }
-function traceStroke(ctx) { ctx.beginPath(); if (state.points.length === 1) { drawDot(ctx, state.points[0]); return; } ctx.moveTo(state.points[0].x, state.points[0].y); for (let i = 1; i < state.points.length; i++) ctx.lineTo(state.points[i].x, state.points[i].y); ctx.stroke(); }
-function eraseSegment(layer, from, to) { const ctx = layer.ctx; ctx.save(); ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size * 1.25; ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000000'; ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); if (from.x === to.x && from.y === to.y) { ctx.beginPath(); ctx.arc(to.x, to.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
+function brushNoise(value) { const number = Math.sin(value * 12.9898) * 43758.5453; return number - Math.floor(number); }
+function drawBrushLine(ctx, offset, seed, jitterAmount = .1) {
+  ctx.beginPath();
+  state.points.forEach((point, index) => {
+    const previous = state.points[Math.max(0, index - 1)]; const next = state.points[Math.min(state.points.length - 1, index + 1)];
+    const dx = next.x - previous.x; const dy = next.y - previous.y; const length = Math.hypot(dx, dy) || 1;
+    const normalX = -dy / length; const normalY = dx / length; const jitter = (brushNoise(seed + index * 1.73) - .5) * state.size * jitterAmount;
+    const x = point.x + normalX * (offset + jitter); const y = point.y + normalY * (offset + jitter);
+    if (index === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+function drawBrushStroke(ctx) {
+  ctx.save(); ctx.strokeStyle = state.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (state.points.length === 1) { ctx.globalAlpha = 1; ctx.fillStyle = state.color; ctx.beginPath(); ctx.arc(state.points[0].x, state.points[0].y, state.size / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore(); return; }
+  ctx.globalAlpha = 1; ctx.lineWidth = Math.max(1, state.size * .68); drawBrushLine(ctx, 0, 1);
+  const bristleCount = Math.max(12, Math.round(state.size * .8));
+  for (let i = 0; i < bristleCount; i++) { const spread = (i / (bristleCount - 1) - .5) * state.size * .9; ctx.globalAlpha = state.opacity >= .999 ? 1 : .07 + brushNoise(i + 4) * .12; ctx.lineWidth = Math.max(.7, state.size * (.025 + brushNoise(i + 18) * .025)); drawBrushLine(ctx, spread, i + 30); }
+  ctx.restore();
+}
+function drawMarkerStroke(ctx) {
+  ctx.save(); ctx.strokeStyle = state.color; ctx.lineCap = 'butt'; ctx.lineJoin = 'bevel'; ctx.globalAlpha = 1;
+  if (state.points.length === 1) { ctx.fillStyle = state.color; ctx.fillRect(state.points[0].x - state.size / 2, state.points[0].y - state.size / 2, state.size, state.size); ctx.restore(); return; }
+  ctx.lineWidth = state.size; drawBrushLine(ctx, 0, 80, 0);
+  const streakCount = Math.max(3, Math.min(8, Math.round(state.size / 8)));
+  for (let i = 0; i < streakCount; i++) { const offset = (i / (streakCount - 1) - .5) * state.size * .78; ctx.globalAlpha = state.opacity >= .999 ? 1 : .06 + brushNoise(i + 90) * .08; ctx.lineWidth = Math.max(1, state.size * .035); drawBrushLine(ctx, offset, i + 100, 0); }
+  ctx.restore();
+}
+function brightenColor(hex, amount = .25) {
+  const value = hex.replace('#', '');
+  const red = parseInt(value.slice(0, 2), 16); const green = parseInt(value.slice(2, 4), 16); const blue = parseInt(value.slice(4, 6), 16);
+  return `rgb(${Math.round(red + (255 - red) * amount)}, ${Math.round(green + (255 - green) * amount)}, ${Math.round(blue + (255 - blue) * amount)})`;
+}
+function drawHighlighterStroke(ctx) {
+  ctx.save(); ctx.lineCap = 'butt'; ctx.lineJoin = 'bevel'; ctx.globalAlpha = 1;
+  if (state.points.length === 1) {
+    ctx.fillStyle = state.color; ctx.fillRect(state.points[0].x - state.size / 2, state.points[0].y - state.size / 2, state.size, state.size);
+    ctx.fillStyle = state.opacity >= .999 ? state.color : brightenColor(state.color, .28); const inset = Math.max(1, state.size * .18); ctx.fillRect(state.points[0].x - state.size / 2 + inset, state.points[0].y - state.size / 2 + inset, state.size - inset * 2, state.size - inset * 2);
+    ctx.restore(); return;
+  }
+  // A squared marker body keeps the stroke clean and rectangular rather than spiky.
+  ctx.strokeStyle = state.color; ctx.lineWidth = state.size; drawBrushLine(ctx, 0, 140, 0);
+  // Keep 100% opacity true to the selected color. At lower opacity, the brighter
+  // inner pass gives the highlighter its vivid, polished center without making
+  // a fully opaque stroke look washed out.
+  ctx.strokeStyle = state.opacity >= .999 ? state.color : brightenColor(state.color, .28); ctx.lineWidth = Math.max(1, state.size * .42); drawBrushLine(ctx, 0, 141, 0);
+  ctx.restore();
+}
+function traceStroke(ctx) { if (state.tool === 'brush') { drawBrushStroke(ctx); return; } if (state.tool === 'marker') { drawMarkerStroke(ctx); return; } if (state.tool === 'highlighter') { drawHighlighterStroke(ctx); return; } ctx.beginPath(); if (state.points.length === 1) { drawDot(ctx, state.points[0]); return; } ctx.moveTo(state.points[0].x, state.points[0].y); for (let i = 1; i < state.points.length; i++) ctx.lineTo(state.points[i].x, state.points[i].y); ctx.stroke(); }
+function eraseSegment(layer, from, to) { const ctx = layer.ctx; ctx.save(); ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size; ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000000'; ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); if (from.x === to.x && from.y === to.y) { ctx.beginPath(); ctx.arc(to.x, to.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
+function compositeCanvas() { const composite = document.createElement('canvas'); composite.width = 1200; composite.height = 900; const ctx = composite.getContext('2d', { willReadFrequently: true }); state.layers.forEach(layer => { if (!layer.visible) return; ctx.globalAlpha = layer.opacity; ctx.globalCompositeOperation = layer.blend; ctx.drawImage(layer.canvas, 0, 0); }); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; return composite; }
+function colorFromPixel(point) { const composite = compositeCanvas(); const x = Math.max(0, Math.min(1199, Math.round(point.x))); const y = Math.max(0, Math.min(899, Math.round(point.y))); const [red, green, blue, alpha] = composite.getContext('2d').getImageData(x, y, 1, 1).data; if (alpha === 0) return null; return `#${[red, green, blue].map(value => value.toString(16).padStart(2, '0')).join('')}`; }
+function pickColorAt(point) { const pickedColor = colorFromPixel(point); if (!pickedColor) { showToast('No color at this point'); return; } state.color = pickedColor; $('colorInput').value = pickedColor; state.tool = state.previousTool || 'brush'; updateControls(); showToast(`Picked ${pickedColor.toUpperCase()}`); }
 function renderStroke() {
   const layer = state.layers[state.activeLayer]; if (!layer || layer.type === 'paper' || !state.strokeBase) return;
   const ctx = layer.ctx;
   // Restore the layer before every redraw so one gesture is painted once.
   ctx.clearRect(0, 0, 1200, 900); ctx.drawImage(state.strokeBase, 0, 0);
-  if (state.tool === 'blend') { for (let i = 1; i < state.points.length; i++) blendStroke(layer, state.points[i - 1], state.points[i]); return; }
   if (state.tool === 'eraser') {
-    ctx.save(); ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size * 1.25;
+    ctx.save(); ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size;
     if (layer.background) { ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = layer.background; ctx.fillStyle = layer.background; }
     else { ctx.globalCompositeOperation = 'destination-out'; }
     traceStroke(ctx); ctx.restore(); return;
@@ -107,9 +195,10 @@ function renderStroke() {
   for (let i = 0; i < output.data.length; i += 4) { const coverage = (inkData.data[i + 3] / 255) * alpha; if (coverage <= 0) continue; const baseAlpha = baseData.data[i + 3]; const baseRed = baseAlpha ? baseData.data[i] : paper[0]; const baseGreen = baseAlpha ? baseData.data[i + 1] : paper[1]; const baseBlue = baseAlpha ? baseData.data[i + 2] : paper[2]; output.data[i] = baseRed + (inkData.data[i] - baseRed) * coverage; output.data[i + 1] = baseGreen + (inkData.data[i + 1] - baseGreen) * coverage; output.data[i + 2] = baseBlue + (inkData.data[i + 2] - baseBlue) * coverage; output.data[i + 3] = Math.max(baseAlpha, inkData.data[i + 3]); }
   ctx.putImageData(output, 0, 0);
 }
-function blendStroke(layer, from, to) { const ctx = layer.ctx; const radius = Math.max(8, state.size * 1.4); const distance = Math.hypot(to.x - from.x, to.y - from.y); const steps = Math.max(1, Math.ceil(distance / 7)); for (let i = 0; i <= steps; i++) { const t = i / steps; const x = from.x + (to.x - from.x) * t; const y = from.y + (to.y - from.y) * t; const sample = ctx.getImageData(Math.max(0, x - radius), Math.max(0, y - radius), Math.min(radius * 2, 1200 - x + radius), Math.min(radius * 2, 900 - y + radius)); ctx.save(); ctx.globalAlpha = .08 * state.opacity; ctx.globalCompositeOperation = 'source-over'; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.clip(); ctx.putImageData(sample, x - radius + (to.x - from.x) * .1, y - radius + (to.y - from.y) * .1); ctx.restore(); } }
+function pixelToHex(pixel) { const [red, green, blue, alpha] = pixel; if (alpha === 0) return null; return `#${[red, green, blue].map(value => value.toString(16).padStart(2, '0')).join('')}`; }
+function canvasPixelColor(canvas, point) { const x = Math.max(0, Math.min(1199, Math.round(point.x))); const y = Math.max(0, Math.min(899, Math.round(point.y))); return pixelToHex(canvas.getContext('2d').getImageData(x, y, 1, 1).data); }
 
-function onPointerDown(event) { if (event.button !== undefined && event.button !== 0) return; const layer = state.layers[state.activeLayer]; if (!layer || layer.type === 'paper') { showToast('Select a color layer to draw'); return; } state.isDrawing = true; state.strokeLayerOpacity = layer.opacity; state.lastPoint = pointFromEvent(event); state.points = [state.lastPoint]; canvasStack.setPointerCapture?.(event.pointerId); if (state.tool === 'eraser') { eraseSegment(layer, state.lastPoint, state.lastPoint); return; } state.strokeBase = copyCanvas(layer.committed || layer.canvas); renderStroke(); }
+function onPointerDown(event) { if (event.button !== undefined && event.button !== 0) return; const point = pointFromEvent(event); if (state.tool === 'eyedropper') { pickColorAt(point); return; } const layer = state.layers[state.activeLayer]; if (!layer || layer.type === 'paper') { showToast('Select a color layer to draw'); return; } state.isDrawing = true; state.strokeLayerOpacity = layer.opacity; state.lastPoint = point; state.points = [state.lastPoint]; canvasStack.setPointerCapture?.(event.pointerId); if (state.tool === 'eraser') { eraseSegment(layer, state.lastPoint, state.lastPoint); return; } state.strokeBase = copyCanvas(layer.committed || layer.canvas); renderStroke(); }
 function onPointerMove(event) { if (!state.isDrawing) return; const point = pointFromEvent(event); if (state.tool === 'eraser') { eraseSegment(state.layers[state.activeLayer], state.lastPoint, point); state.lastPoint = point; return; } state.points.push(point); state.lastPoint = point; renderStroke(); }
 function onPointerUp() { if (!state.isDrawing) return; const layer = state.layers[state.activeLayer]; if (layer) { layer.opacity = state.strokeLayerOpacity; layer.canvas.style.opacity = layer.opacity; layer.committed = copyCanvas(layer.canvas); } state.isDrawing = false; state.lastPoint = null; state.strokeBase = null; saveHistory(); checkEmpty(); }
 function checkEmpty() { $('emptyState').style.opacity = state.historyIndex <= 0 ? '.8' : '0'; }
@@ -135,14 +224,15 @@ async function loadProject(file) { try { const project = JSON.parse(await file.t
 function bindEvents() {
   document.querySelectorAll('[data-tool]').forEach(button => button.addEventListener('click', () => setTool(button.dataset.tool)));
   $('sizeRange').addEventListener('input', e => { state.size = Number(e.target.value); updateControls(); }); $('opacityRange').addEventListener('input', e => { state.opacity = Number(e.target.value) / 100; updateControls(); }); $('colorInput').addEventListener('input', e => { state.color = e.target.value; updateControls(); });
-  document.querySelectorAll('.swatch[data-color]').forEach(swatch => swatch.addEventListener('click', () => { state.color = swatch.dataset.color; $('colorInput').value = state.color; updateControls(); }));
+  document.querySelectorAll('.swatch[data-color]').forEach(swatch => swatch.addEventListener('click', () => selectColor(swatch.dataset.color)));
+  $('addSwatchBtn').addEventListener('click', () => { $('colorInput').dataset.addToPalette = 'true'; $('colorInput').click(); });
+  $('colorInput').addEventListener('change', event => { if (event.target.dataset.addToPalette !== 'true') return; addCustomSwatch(event.target.value); delete event.target.dataset.addToPalette; selectColor(event.target.value); showToast('Color added to palette'); });
   canvasStack.addEventListener('dragstart', event => event.preventDefault()); canvasStack.addEventListener('pointerdown', event => { updateCursorPreview(event); onPointerDown(event); }); canvasStack.addEventListener('pointermove', event => { updateCursorPreview(event); onPointerMove(event); }); canvasStack.addEventListener('pointerenter', updateCursorPreview); canvasStack.addEventListener('pointerleave', () => $('cursorPreview').classList.remove('visible')); canvasStack.addEventListener('pointerup', onPointerUp); canvasStack.addEventListener('pointercancel', onPointerUp);
   $('undoBtn').addEventListener('click', undo); $('redoBtn').addEventListener('click', redo); $('addLayerBtn').addEventListener('click', addLayer); $('deleteLayerBtn').addEventListener('click', deleteLayer); $('duplicateLayerBtn').addEventListener('click', duplicateLayer); $('moveLayerUpBtn').addEventListener('click', () => moveLayer(1)); $('moveLayerDownBtn').addEventListener('click', () => moveLayer(-1)); $('exportBtn').addEventListener('click', exportImage); $('saveProjectBtn').addEventListener('click', saveProject); $('loadProjectBtn').addEventListener('click', () => $('importInput').click()); $('importInput').addEventListener('change', async event => { const file = event.target.files?.[0]; if (file) await loadProject(file); event.target.value = ''; });
   $('clearBtn').addEventListener('click', () => { const layer = state.layers[state.activeLayer]; if (layer.type === 'paper') return showToast('The paper layer cannot be cleared'); layer.ctx.clearRect(0, 0, 1200, 900); if (layer.background) { layer.ctx.fillStyle = layer.background; layer.ctx.fillRect(0, 0, 1200, 900); } layer.committed = copyCanvas(layer.canvas); saveHistory(); renderLayers(); showToast('Active layer cleared'); });
   $('gridBtn').addEventListener('click', () => { state.grid = !state.grid; updateControls(); }); $('mirrorBtn').addEventListener('click', () => { state.mirror = !state.mirror; updateControls(); });
-  $('zoomInBtn').addEventListener('click', () => { state.zoom = Math.min(1.5, state.zoom + .1); updateControls(); }); $('zoomOutBtn').addEventListener('click', () => { state.zoom = Math.max(.7, state.zoom - .1); updateControls(); }); $('fitBtn').addEventListener('click', () => { state.zoom = 1; updateControls(); }); $('fullscreenBtn').addEventListener('click', () => document.querySelector('.canvas-area').classList.toggle('focus-mode'));
+  $('zoomInBtn').addEventListener('click', () => { state.zoom = Math.min(4, state.zoom * 1.15); updateControls(); }); $('zoomOutBtn').addEventListener('click', () => { state.zoom = Math.max(.25, state.zoom / 1.15); updateControls(); }); $('zoomValue').addEventListener('change', event => { const percent = Number(event.target.value); if (!Number.isFinite(percent)) return updateControls(); state.zoom = Math.max(.25, Math.min(4, percent / 100)); updateControls(); }); $('fitBtn').addEventListener('click', fitCanvas); $('fullscreenBtn').addEventListener('click', toggleFocusMode); document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.querySelector('.canvas-area').classList.contains('focus-mode')) { document.querySelector('.canvas-area').classList.remove('focus-mode'); $('fullscreenBtn').title = 'Focus mode'; requestAnimationFrame(fitCanvas); } }); window.addEventListener('resize', () => { if (document.querySelector('.canvas-area').classList.contains('focus-mode')) fitCanvas(); });
   $('layerOpacityRange').addEventListener('input', e => { const layer = state.layers[state.activeLayer]; layer.opacity = Number(e.target.value) / 100; renderLayers(); syncLayerStyles(); }); $('layerOpacityRange').addEventListener('change', saveHistory); $('layerNameInput').addEventListener('change', e => { state.layers[state.activeLayer].name = e.target.value || 'Untitled layer'; renderLayers(); saveHistory(); }); $('blendMode').addEventListener('change', e => { const modes = {'Normal':'source-over','Multiply':'multiply','Screen':'screen','Overlay':'overlay','Soft light':'soft-light'}; state.layers[state.activeLayer].blend = modes[e.target.value]; syncLayerStyles(); saveHistory(); });
-  $('favoriteBtn').addEventListener('click', e => { e.currentTarget.textContent = e.currentTarget.textContent === '♡' ? '♥' : '♡'; e.currentTarget.style.color = e.currentTarget.textContent === '♥' ? '#ef6f61' : ''; });
   $('documentTitle').addEventListener('input', e => { $('canvasStatus').textContent = e.target.value.trim() || 'Untitled artwork'; });
   document.addEventListener('keydown', e => { const key = e.key.toLowerCase(); if ((e.metaKey || e.ctrlKey) && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } else if (!e.metaKey && !e.ctrlKey && !e.altKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) { if (key === 'b') setTool('brush'); if (key === 'e') setTool('eraser'); if (key === 'p') setTool('pencil'); if (key === 'i') setTool('eyedropper'); } });
 }

@@ -18,21 +18,22 @@
           </div>
         </div>
         <div class="document-name">
-          <button class="icon-button subtle" id="favoriteBtn" aria-label="Favorite artwork" title="Favorite artwork">♡</button>
           <div class="name-field">
             <input id="documentTitle" value="" placeholder="Untitled artwork" aria-label="Artwork title" />
-            <span>Saved just now</span>
           </div>
-          <span class="save-dot" aria-label="All changes saved"></span>
         </div>
         <div class="top-actions">
           <button class="icon-button" id="undoBtn" aria-label="Undo" title="Undo (⌘/Ctrl + Z)">↶</button>
           <button class="icon-button" id="redoBtn" aria-label="Redo" title="Redo (⌘/Ctrl + Shift + Z)">↷</button>
           <span class="top-divider"></span>
-          <button class="icon-button" id="saveProjectBtn" aria-label="Save project" title="Save project">⇩</button>
-          <button class="icon-button" id="loadProjectBtn" aria-label="Load project" title="Load project">⇧</button>
+          <button class="icon-button" id="saveProjectBtn" aria-label="Save project" title="Save project">
+            <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" /></svg>
+          </button>
+          <button class="icon-button" id="loadProjectBtn" aria-label="Load project" title="Load project">
+            <svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 15V4m0 0 4 4m-4-4L8 8M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" /></svg>
+          </button>
           <button class="ghost-button" id="clearBtn"><span class="button-icon">⌫</span> Clear canvas</button>
-          <button class="primary-button" id="exportBtn"><span class="button-icon">↓</span> Export</button>
+          <button class="primary-button" id="exportBtn"><svg class="button-icon ui-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2" /></svg> Export</button>
         </div>
       </header>
 
@@ -58,9 +59,6 @@
               </button>
               <button class="tool-button" data-tool="eraser" title="Eraser" aria-label="Eraser">
                 <span class="tool-glyph eraser-glyph">◒</span><span>Eraser</span>
-              </button>
-              <button class="tool-button" data-tool="blend" title="Blend" aria-label="Blend">
-                <span class="tool-glyph blend-glyph">◌</span><span>Blend</span>
               </button>
               <button class="tool-button" data-tool="eyedropper" title="Color picker" aria-label="Color picker">
                 <span class="tool-glyph eyedropper-glyph">⌖</span><span>Picker</span>
@@ -92,7 +90,7 @@
               <button class="swatch" style="--swatch:#5e7ce2" data-color="#5e7ce2" aria-label="Blue"></button>
               <button class="swatch" style="--swatch:#b675d2" data-color="#b675d2" aria-label="Violet"></button>
               <button class="swatch" style="--swatch:#f7f4ed" data-color="#f7f4ed" aria-label="Paper white"></button>
-              <button class="swatch add-swatch" aria-label="Add custom color">+</button>
+              <button class="swatch add-swatch" id="addSwatchBtn" aria-label="Add custom color" title="Add a color to the palette">+</button>
             </div>
           </div>
 
@@ -111,14 +109,14 @@
             <div class="canvas-tools">
               <button class="canvas-icon-btn" id="fitBtn" title="Fit canvas">⤢</button>
               <button class="canvas-icon-btn" id="zoomOutBtn" title="Zoom out">−</button>
-              <span class="zoom-label" id="zoomValue">100%</span>
+              <input class="zoom-label" id="zoomValue" type="number" min="25" max="400" step="1" value="100" aria-label="Canvas zoom percentage" title="Type a zoom percentage" />
               <button class="canvas-icon-btn" id="zoomInBtn" title="Zoom in">+</button>
               <span class="canvas-toolbar-divider"></span>
               <button class="canvas-icon-btn" id="fullscreenBtn" title="Focus mode">⛶</button>
             </div>
           </div>
           <div class="canvas-stage" id="canvasStage">
-            <div class="canvas-shadow"></div>
+            <div class="canvas-shadow" id="canvasShadow"></div>
             <div class="canvas-stack" id="canvasStack" aria-label="Drawing canvas"><div class="cursor-preview" id="cursorPreview" aria-hidden="true"></div></div>
             <div class="empty-state" id="emptyState" aria-hidden="true">
               <div class="empty-icon">✦</div><span>Start with a stroke</span>
