@@ -60,6 +60,9 @@
               <button class="tool-button" data-tool="blend" title="Blend colors" aria-label="Blend colors">
                 <span class="tool-glyph blend-glyph">≈</span><span>Blend</span>
               </button>
+              <button class="tool-button" data-tool="stencil" title="Stencil mode" aria-label="Stencil mode">
+                <span class="tool-glyph stencil-glyph">▧</span><span>Stencil</span>
+              </button>
               <button class="tool-button" data-tool="eraser" title="Eraser" aria-label="Eraser">
                 <span class="tool-glyph eraser-glyph">◒</span><span>Eraser</span>
               </button>
@@ -125,6 +128,7 @@
               <div class="empty-icon">✦</div><span>Start with a stroke</span>
             </div>
             <div class="grid-overlay" id="gridOverlay"></div>
+            <canvas class="stencil-overlay" id="stencilOverlay" width="1200" height="900" aria-hidden="true"></canvas>
           </div>
           <div class="canvas-footer">
             <span><kbd>Space</kbd> Pan canvas</span><span><kbd>B</kbd> Brush</span><span><kbd>E</kbd> Eraser</span><span><kbd>⌘ Z</kbd> Undo</span>

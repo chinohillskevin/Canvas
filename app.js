@@ -1,12 +1,13 @@
 const state = {
   tool: 'brush', color: '#1c2434', size: 24, opacity: .82, zoom: 1, grid: false, mirror: false,
-  layers: [], activeLayer: 0, previousTool: 'brush', history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, blendPreview: null, blendMask: null, strokeLayerOpacity: 1, cursorPosition: null
+  layers: [], activeLayer: 0, previousTool: 'brush', history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, blendPreview: null, blendMask: null, strokeLayerOpacity: 1, cursorPosition: null, stencilMode: false, stencilCanvas: null, stencilCtx: null, stencilHasMarks: false
 };
 
 const $ = (id) => document.getElementById(id);
 const canvasStack = $('canvasStack');
 const stage = $('canvasStage');
 const toast = $('toast');
+const stencilOverlay = $('stencilOverlay');
 
 function showToast(message) { toast.textContent = message; toast.classList.add('show'); clearTimeout(showToast.timer); showToast.timer = setTimeout(() => toast.classList.remove('show'), 1800); }
 
@@ -37,6 +38,8 @@ function seedArtwork(layer) {
 }
 
 function init() {
+  state.stencilCanvas = stencilOverlay;
+  state.stencilCtx = stencilOverlay.getContext('2d');
   const base = makeLayer('Layer 1'); base.background = '#f8f5ee';
   base.ctx.fillStyle = '#f8f5ee'; base.ctx.fillRect(0, 0, 1200, 900);
   state.layers = [base]; state.activeLayer = 0;
@@ -67,7 +70,7 @@ function updateControls() {
   $('sizeValue').textContent = `${state.size} px`; $('sizeRange').value = state.size; $('opacityValue').textContent = `${Math.round(state.opacity * 100)}%`; $('opacityRange').value = Math.round(state.opacity * 100); $('colorHex').textContent = state.color.toUpperCase(); $('sizePreview').style.width = `${Math.max(4, Math.min(30, state.size / 2))}px`; $('sizePreview').style.height = `${Math.max(4, Math.min(30, state.size / 2))}px`;
   document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('selected', s.dataset.color?.toLowerCase() === state.color.toLowerCase()));
   document.querySelectorAll('.tool-button').forEach(button => button.classList.toggle('active', button.dataset.tool === state.tool));
-  $('gridIndicator').classList.toggle('on', state.grid); $('gridOverlay').classList.toggle('visible', state.grid); $('mirrorIndicator').classList.toggle('on', state.mirror); applyCanvasTransform();
+  $('gridIndicator').classList.toggle('on', state.grid); $('gridOverlay').classList.toggle('visible', state.grid); $('mirrorIndicator').classList.toggle('on', state.mirror); stencilOverlay.classList.toggle('visible', state.stencilMode); applyCanvasTransform();
   $('zoomValue').value = Math.round(state.zoom * 100);
   refreshCursorPreview();
 }
@@ -77,6 +80,7 @@ function applyCanvasTransform() {
   const transform = `scale(${mirrorScale * state.zoom}, ${state.zoom})`;
   canvasStack.style.transform = transform;
   $('gridOverlay').style.transform = transform;
+  stencilOverlay.style.transform = transform;
   $('canvasShadow').style.transform = `translateY(18px) scale(${state.zoom})`;
 }
 function fitCanvas() {
@@ -100,7 +104,31 @@ async function toggleFocusMode() {
   requestAnimationFrame(fitCanvas);
 }
 
-function setTool(tool) { if (tool !== 'eyedropper') state.previousTool = tool; state.tool = tool; updateControls(); const toolLabel = tool === 'eyedropper' ? 'Color picker' : `${tool[0].toUpperCase() + tool.slice(1)}`; showToast(`${toolLabel} selected`); }
+function clearStencilOverlay() { state.stencilCtx.clearRect(0, 0, 1200, 900); state.stencilHasMarks = false; }
+function drawStencilStroke() {
+  const ctx = state.stencilCtx; ctx.save(); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; ctx.strokeStyle = '#737983'; ctx.fillStyle = '#737983'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size; ctx.beginPath();
+  if (state.points.length === 1) { ctx.arc(state.points[0].x, state.points[0].y, state.size / 2, 0, Math.PI * 2); ctx.fill(); } else { ctx.moveTo(state.points[0].x, state.points[0].y); for (let i = 1; i < state.points.length; i++) ctx.lineTo(state.points[i].x, state.points[i].y); ctx.stroke(); }
+  ctx.restore(); state.stencilHasMarks = true;
+}
+function eraseStencilMaskFromLayers() {
+  if (!state.stencilHasMarks) return;
+  state.layers.forEach(layer => {
+    if (layer.type === 'paper') return;
+    layer.ctx.save(); layer.ctx.globalCompositeOperation = 'destination-out'; layer.ctx.globalAlpha = 1; layer.ctx.drawImage(state.stencilCanvas, 0, 0); layer.ctx.restore();
+    layer.committed = copyCanvas(layer.canvas);
+  });
+}
+function toggleStencilMode() {
+  if (state.stencilMode) {
+    eraseStencilMaskFromLayers(); clearStencilOverlay(); state.stencilMode = false; state.tool = state.previousTool || 'brush'; syncLayerStyles(); renderLayers(); updateControls(); saveHistory(); checkEmpty(); showToast('Stencil removed — blank area created'); return;
+  }
+  clearStencilOverlay(); state.stencilMode = true; state.tool = 'stencil'; updateControls(); showToast('Stencil mode selected — draw a mask');
+}
+function setTool(tool) {
+  if (tool === 'stencil') { toggleStencilMode(); return; }
+  if (state.stencilMode) { showToast('Press Stencil again when you are finished'); return; }
+  if (tool !== 'eyedropper') state.previousTool = tool; state.tool = tool; updateControls(); const toolLabel = tool === 'eyedropper' ? 'Color picker' : `${tool[0].toUpperCase() + tool.slice(1)}`; showToast(`${toolLabel} selected`);
+}
 
 function selectColor(color) { state.color = color; $('colorInput').value = color; updateControls(); }
 function addCustomSwatch(color) {
@@ -115,7 +143,7 @@ function addCustomSwatch(color) {
 function pointFromEvent(event) { const rect = canvasStack.getBoundingClientRect(); const visualX = ((event.clientX - rect.left) / rect.width) * 1200; const x = state.mirror ? 1200 - visualX : visualX; const y = ((event.clientY - rect.top) / rect.height) * 900; return { x, y }; }
 
 function cursorDiameter() { return state.size; }
-function updateCursorPreview(event) { const preview = $('cursorPreview'); if (!preview) return; const rect = canvasStack.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) { preview.classList.remove('visible'); return; } const layoutWidth = canvasStack.offsetWidth; const layoutHeight = canvasStack.offsetHeight; const visualX = ((event.clientX - rect.left) / rect.width) * layoutWidth; const visualY = ((event.clientY - rect.top) / rect.height) * layoutHeight; const x = state.mirror ? layoutWidth - visualX : visualX; const diameter = cursorDiameter() * (layoutWidth / 1200); preview.style.left = `${x}px`; preview.style.top = `${visualY}px`; preview.style.width = `${Math.max(2, diameter)}px`; preview.style.height = `${Math.max(2, diameter)}px`; preview.style.setProperty('--cursor-color', state.tool === 'eraser' ? '#6b7280' : state.color); preview.classList.add('visible'); state.cursorPosition = { clientX: event.clientX, clientY: event.clientY }; }
+function updateCursorPreview(event) { const preview = $('cursorPreview'); if (!preview) return; const rect = canvasStack.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) { preview.classList.remove('visible'); return; } const layoutWidth = canvasStack.offsetWidth; const layoutHeight = canvasStack.offsetHeight; const visualX = ((event.clientX - rect.left) / rect.width) * layoutWidth; const visualY = ((event.clientY - rect.top) / rect.height) * layoutHeight; const x = state.mirror ? layoutWidth - visualX : visualX; const diameter = cursorDiameter() * (layoutWidth / 1200); preview.style.left = `${x}px`; preview.style.top = `${visualY}px`; preview.style.width = `${Math.max(2, diameter)}px`; preview.style.height = `${Math.max(2, diameter)}px`; preview.style.setProperty('--cursor-color', state.tool === 'eraser' ? '#6b7280' : state.tool === 'stencil' ? '#737983' : state.color); preview.classList.add('visible'); state.cursorPosition = { clientX: event.clientX, clientY: event.clientY }; }
 function refreshCursorPreview() { if (state.cursorPosition) updateCursorPreview(state.cursorPosition); }
 
 function toolAlpha() { return state.opacity; }
@@ -212,9 +240,9 @@ function renderStroke() {
 function pixelToHex(pixel) { const [red, green, blue, alpha] = pixel; if (alpha === 0) return null; return `#${[red, green, blue].map(value => value.toString(16).padStart(2, '0')).join('')}`; }
 function canvasPixelColor(canvas, point) { const x = Math.max(0, Math.min(1199, Math.round(point.x))); const y = Math.max(0, Math.min(899, Math.round(point.y))); return pixelToHex(canvas.getContext('2d').getImageData(x, y, 1, 1).data); }
 
-function onPointerDown(event) { if (event.button !== undefined && event.button !== 0) return; const point = pointFromEvent(event); if (state.tool === 'eyedropper') { pickColorAt(point); return; } const layer = state.layers[state.activeLayer]; if (!layer || layer.type === 'paper') { showToast('Select a color layer to draw'); return; } state.isDrawing = true; state.strokeLayerOpacity = layer.opacity; state.lastPoint = point; state.points = [state.lastPoint]; canvasStack.setPointerCapture?.(event.pointerId); if (state.tool === 'eraser') { eraseSegment(layer, state.lastPoint, state.lastPoint); return; } state.strokeBase = copyCanvas(layer.committed || layer.canvas); renderStroke(); }
-function onPointerMove(event) { if (!state.isDrawing) return; const point = pointFromEvent(event); if (state.tool === 'eraser') { eraseSegment(state.layers[state.activeLayer], state.lastPoint, point); state.lastPoint = point; return; } state.points.push(point); state.lastPoint = point; renderStroke(); }
-function onPointerUp() { if (!state.isDrawing) return; const layer = state.layers[state.activeLayer]; if (layer) { layer.opacity = state.strokeLayerOpacity; layer.canvas.style.opacity = layer.opacity; layer.committed = copyCanvas(layer.canvas); } state.isDrawing = false; state.lastPoint = null; state.strokeBase = null; saveHistory(); checkEmpty(); }
+function onPointerDown(event) { if (event.button !== undefined && event.button !== 0) return; const point = pointFromEvent(event); if (state.stencilMode) { state.isDrawing = true; state.lastPoint = point; state.points = [point]; canvasStack.setPointerCapture?.(event.pointerId); drawStencilStroke(); return; } if (state.tool === 'eyedropper') { pickColorAt(point); return; } const layer = state.layers[state.activeLayer]; if (!layer || layer.type === 'paper') { showToast('Select a color layer to draw'); return; } state.isDrawing = true; state.strokeLayerOpacity = layer.opacity; state.lastPoint = point; state.points = [state.lastPoint]; canvasStack.setPointerCapture?.(event.pointerId); if (state.tool === 'eraser') { eraseSegment(layer, state.lastPoint, state.lastPoint); return; } state.strokeBase = copyCanvas(layer.committed || layer.canvas); renderStroke(); }
+function onPointerMove(event) { if (!state.isDrawing) return; const point = pointFromEvent(event); if (state.stencilMode) { state.points.push(point); state.lastPoint = point; drawStencilStroke(); return; } if (state.tool === 'eraser') { eraseSegment(state.layers[state.activeLayer], state.lastPoint, point); state.lastPoint = point; return; } state.points.push(point); state.lastPoint = point; renderStroke(); }
+function onPointerUp() { if (!state.isDrawing) return; if (state.stencilMode) { state.isDrawing = false; state.lastPoint = null; return; } const layer = state.layers[state.activeLayer]; if (layer) { layer.opacity = state.strokeLayerOpacity; layer.canvas.style.opacity = layer.opacity; layer.committed = copyCanvas(layer.canvas); } state.isDrawing = false; state.lastPoint = null; state.strokeBase = null; saveHistory(); checkEmpty(); }
 function checkEmpty() { $('emptyState').style.opacity = state.historyIndex <= 0 ? '.8' : '0'; }
 
 function snapshot() { return state.layers.map(layer => ({ name: layer.name, visible: layer.visible, opacity: layer.opacity, blend: layer.blend, type: layer.type, background: layer.background, data: layer.canvas.toDataURL() })); }
