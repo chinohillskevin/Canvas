@@ -1,6 +1,6 @@
 const state = {
   tool: 'brush', color: '#1c2434', size: 24, opacity: .82, zoom: 1, grid: false, mirror: false,
-  layers: [], activeLayer: 0, previousTool: 'brush', history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, strokeLayerOpacity: 1, cursorPosition: null
+  layers: [], activeLayer: 0, previousTool: 'brush', history: [], historyIndex: -1, isDrawing: false, lastPoint: null, points: [], strokeBase: null, strokePreview: null, blendPreview: null, blendMask: null, strokeLayerOpacity: 1, cursorPosition: null
 };
 
 const $ = (id) => document.getElementById(id);
@@ -170,6 +170,19 @@ function drawHighlighterStroke(ctx) {
   ctx.strokeStyle = state.opacity >= .999 ? state.color : brightenColor(state.color, .28); ctx.lineWidth = Math.max(1, state.size * .42); drawBrushLine(ctx, 0, 141, 0);
   ctx.restore();
 }
+function drawBlendStroke(ctx) {
+  if (!state.blendPreview) { state.blendPreview = document.createElement('canvas'); state.blendPreview.width = 1200; state.blendPreview.height = 900; }
+  if (!state.blendMask) { state.blendMask = document.createElement('canvas'); state.blendMask.width = 1200; state.blendMask.height = 900; }
+  const blendCtx = state.blendPreview.getContext('2d'); const maskCtx = state.blendMask.getContext('2d');
+  blendCtx.clearRect(0, 0, 1200, 900); maskCtx.clearRect(0, 0, 1200, 900);
+  // Blur the untouched stroke base, then reveal only the path covered by the blend brush.
+  blendCtx.save(); blendCtx.filter = `blur(${Math.max(1.5, state.size * .22)}px)`; blendCtx.drawImage(state.strokeBase, 0, 0); blendCtx.restore();
+  maskCtx.save(); maskCtx.strokeStyle = '#fff'; maskCtx.lineWidth = state.size; maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round'; maskCtx.beginPath();
+  if (state.points.length === 1) { maskCtx.arc(state.points[0].x, state.points[0].y, state.size / 2, 0, Math.PI * 2); maskCtx.fill(); } else { maskCtx.moveTo(state.points[0].x, state.points[0].y); for (let i = 1; i < state.points.length; i++) maskCtx.lineTo(state.points[i].x, state.points[i].y); maskCtx.stroke(); }
+  maskCtx.restore();
+  blendCtx.save(); blendCtx.globalCompositeOperation = 'destination-in'; blendCtx.drawImage(state.blendMask, 0, 0); blendCtx.restore();
+  ctx.save(); ctx.globalAlpha = toolAlpha(); ctx.globalCompositeOperation = 'source-atop'; ctx.drawImage(state.blendPreview, 0, 0); ctx.restore();
+}
 function traceStroke(ctx) { if (state.tool === 'brush') { drawBrushStroke(ctx); return; } if (state.tool === 'marker') { drawMarkerStroke(ctx); return; } if (state.tool === 'highlighter') { drawHighlighterStroke(ctx); return; } ctx.beginPath(); if (state.points.length === 1) { drawDot(ctx, state.points[0]); return; } ctx.moveTo(state.points[0].x, state.points[0].y); for (let i = 1; i < state.points.length; i++) ctx.lineTo(state.points[i].x, state.points[i].y); ctx.stroke(); }
 function eraseSegment(layer, from, to) { const ctx = layer.ctx; ctx.save(); ctx.globalAlpha = 1; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = state.size; ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000000'; ctx.fillStyle = '#000000'; ctx.beginPath(); ctx.moveTo(from.x, from.y); ctx.lineTo(to.x, to.y); ctx.stroke(); if (from.x === to.x && from.y === to.y) { ctx.beginPath(); ctx.arc(to.x, to.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); } ctx.restore(); }
 function compositeCanvas() { const composite = document.createElement('canvas'); composite.width = 1200; composite.height = 900; const ctx = composite.getContext('2d', { willReadFrequently: true }); state.layers.forEach(layer => { if (!layer.visible) return; ctx.globalAlpha = layer.opacity; ctx.globalCompositeOperation = layer.blend; ctx.drawImage(layer.canvas, 0, 0); }); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; return composite; }
@@ -186,6 +199,7 @@ function renderStroke() {
     else { ctx.globalCompositeOperation = 'destination-out'; }
     traceStroke(ctx); ctx.restore(); return;
   }
+  if (state.tool === 'blend') { drawBlendStroke(ctx); return; }
 
   // Paint an opaque mask, then blend its color into the layer while preserving
   // the destination alpha. Brush opacity changes color intensity, never layer transparency.
@@ -234,7 +248,7 @@ function bindEvents() {
   $('zoomInBtn').addEventListener('click', () => { state.zoom = Math.min(4, state.zoom * 1.15); updateControls(); }); $('zoomOutBtn').addEventListener('click', () => { state.zoom = Math.max(.25, state.zoom / 1.15); updateControls(); }); $('zoomValue').addEventListener('change', event => { const percent = Number(event.target.value); if (!Number.isFinite(percent)) return updateControls(); state.zoom = Math.max(.25, Math.min(4, percent / 100)); updateControls(); }); $('fitBtn').addEventListener('click', fitCanvas); $('fullscreenBtn').addEventListener('click', toggleFocusMode); document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.querySelector('.canvas-area').classList.contains('focus-mode')) { document.querySelector('.canvas-area').classList.remove('focus-mode'); $('fullscreenBtn').title = 'Focus mode'; requestAnimationFrame(fitCanvas); } }); window.addEventListener('resize', () => { if (document.querySelector('.canvas-area').classList.contains('focus-mode')) fitCanvas(); });
   $('layerOpacityRange').addEventListener('input', e => { const layer = state.layers[state.activeLayer]; layer.opacity = Number(e.target.value) / 100; renderLayers(); syncLayerStyles(); }); $('layerOpacityRange').addEventListener('change', saveHistory); $('layerNameInput').addEventListener('change', e => { state.layers[state.activeLayer].name = e.target.value || 'Untitled layer'; renderLayers(); saveHistory(); }); $('blendMode').addEventListener('change', e => { const modes = {'Normal':'source-over','Multiply':'multiply','Screen':'screen','Overlay':'overlay','Soft light':'soft-light'}; state.layers[state.activeLayer].blend = modes[e.target.value]; syncLayerStyles(); saveHistory(); });
   $('documentTitle').addEventListener('input', e => { $('canvasStatus').textContent = e.target.value.trim() || 'Untitled artwork'; });
-  document.addEventListener('keydown', e => { const key = e.key.toLowerCase(); if ((e.metaKey || e.ctrlKey) && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } else if (!e.metaKey && !e.ctrlKey && !e.altKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) { if (key === 'b') setTool('brush'); if (key === 'e') setTool('eraser'); if (key === 'p') setTool('pencil'); if (key === 'i') setTool('eyedropper'); } });
+  document.addEventListener('keydown', e => { const key = e.key.toLowerCase(); if ((e.metaKey || e.ctrlKey) && key === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); } else if (!e.metaKey && !e.ctrlKey && !e.altKey && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) { if (key === 'b') setTool('brush'); if (key === 'e') setTool('eraser'); if (key === 'p') setTool('pencil'); if (key === 'i') setTool('eyedropper'); if (key === 'g') setTool('blend'); } });
 }
 
 init();
